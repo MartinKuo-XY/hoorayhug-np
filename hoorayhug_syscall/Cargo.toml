@@ -1,0 +1,18 @@
+[package]
+name = "hoorayhug_syscall"
+version = "0.1.11"
+authors = ["zephyr <i@zephyr.moe>"]
+description = "hoorayhug's convenient syscall collections."
+repository = "https://github.com/MartinKuo-XY/hoorayhug-rs"
+readme = "README.md"
+documentation = "https://docs.rs/hoorayhug_syscall"
+keywords = ["network", "syscall"]
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+libc = "0.2"
+socket2 = { version = "0.6", features = ["all"] }
+
+[target.'cfg(unix)'.dependencies]
+daemonize = "0.5"
