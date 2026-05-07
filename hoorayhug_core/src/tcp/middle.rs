@@ -1,6 +1,7 @@
 use std::io::Result;
 use tokio::net::TcpStream;
 
+#[cfg(not(feature = "balance"))]
 use super::socket;
 use super::plain;
 

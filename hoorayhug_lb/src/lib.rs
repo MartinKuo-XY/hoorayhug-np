@@ -34,10 +34,10 @@ pub trait Balance {
     fn total(&self) -> u8;
 
     /// Record success for a peer.
-    fn on_success(&self, token: Token) {}
+    fn on_success(&self, _token: Token) {}
 
     /// Record failure for a peer.
-    fn on_failure(&self, token: Token) {}
+    fn on_failure(&self, _token: Token) {}
 }
 
 /// Downstream health tracker shared between LB and relay endpoints.
