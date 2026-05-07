@@ -24,7 +24,7 @@ async fn try_connect_with_fallback(
     extra_raddrs: &[RemoteAddr],
     conn_opts: &ConnectOpts,
     local: &TcpStream,
-) -> Result<TcpStream> {
+) -> Result<(TcpStream, Option<hoorayhug_lb::Token>)> {
     use hoorayhug_lb::{Token, BalanceCtx};
     use std::collections::HashSet;
 
@@ -50,11 +50,8 @@ async fn try_connect_with_fallback(
 
         match super::socket::connect(selected, conn_opts).await {
             Ok(stream) => {
-                if let Some(tok) = token {
-                    balancer.on_success(tok);
-                }
                 log::info!("[tcp]{} => {} as {}", local.peer_addr()?, selected, stream.peer_addr()?);
-                return Ok(stream);
+                return Ok((stream, token));
             }
             Err(e) => {
                 log::warn!("[tcp]connect to {} failed: {}, trying next peer", selected, e);
@@ -98,17 +95,22 @@ pub async fn connect_and_relay(
     hook::pre_connect_hook(&mut local, raddr.as_ref(), extra_raddrs.as_ref()).await?;
 
     // connect with optional retry (balance feature).
+    #[cfg(feature = "balance")]
+    let selected_token: Option<hoorayhug_lb::Token>;
+
     let mut remote = {
         #[cfg(feature = "balance")]
         {
-            try_connect_with_fallback(
+            let (stream, tok) = try_connect_with_fallback(
                 balancer,
                 raddr.as_ref(),
                 extra_raddrs.as_ref(),
                 conn_opts.as_ref(),
                 &local,
             )
-            .await?
+            .await?;
+            selected_token = tok;
+            stream
         }
 
         #[cfg(not(feature = "balance"))]
@@ -142,9 +144,23 @@ pub async fn connect_and_relay(
         }
     };
 
-    // ignore relay error
-    if let Err(e) = res {
-        log::debug!("[tcp]forward error: {}, ignored", e);
+    match res {
+        Ok(()) => {
+            // Entire relay succeeded: mark this peer as healthy.
+            #[cfg(feature = "balance")]
+            if let Some(tok) = selected_token {
+                balancer.on_success(tok);
+            }
+        }
+        Err(e) => {
+            // Relay failed (downstream unreachable, connection reset, etc.):
+            // mark this peer as failed so the balancer can skip it next time.
+            #[cfg(feature = "balance")]
+            if let Some(tok) = selected_token {
+                balancer.on_failure(tok);
+            }
+            log::debug!("[tcp]forward error: {}, ignored", e);
+        }
     }
 
     Ok(())
