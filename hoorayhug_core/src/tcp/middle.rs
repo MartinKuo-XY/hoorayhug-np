@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 #[cfg(feature = "balance")]
 use std::sync::Arc;
 #[cfg(feature = "balance")]
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 #[cfg(not(feature = "balance"))]
 use super::socket;
@@ -205,14 +205,19 @@ async fn try_connect_with_fallback(
     ))
 }
 
-/// Timed plain relay: kills the connection if no response arrives within
-/// `max_latency_ms`.  The balancer tracks the outcome via on_success/on_failure
-/// called by the caller.
+/// Timed plain relay with non-disruptive latency failover.
+///
+/// If no first byte arrives within `max_latency_ms`, the node is marked unhealthy
+/// via the shared `latency_exceeded` flag, but the relay is NOT killed — the
+/// connection continues so the client still gets the response (just slowly).
+/// The caller checks `latency_exceeded` after relay completes to decide whether
+/// to call `balancer.on_success` or `balancer.on_failure`.
 #[cfg(feature = "balance")]
 async fn relay_plain_timed(
     mut local: TcpStream,
     remote: TcpStream,
     first_byte_us: &Arc<AtomicU64>,
+    latency_exceeded: &Arc<AtomicBool>,
     max_latency_ms: u32,
 ) -> Result<()> {
     use std::time::Duration;
@@ -227,7 +232,7 @@ async fn relay_plain_timed(
     let deadline = tokio::time::Instant::now() + Duration::from_millis(max_latency_ms as u64);
 
     tokio::select! {
-        // Relay completed naturally (success or error).
+        // Relay completed before the deadline — fast path.
         r = &mut relay => r.map(|_| ()),
 
         // Deadline fired — check whether the first byte arrived in time.
@@ -236,12 +241,11 @@ async fn relay_plain_timed(
                 // First byte arrived within the threshold — let relay finish.
                 relay.await.map(|_| ())
             } else {
-                // No response — kill the connection (drop relay → close both ends).
-                log::warn!("[tcp]no first byte within {}ms, killing connection", max_latency_ms);
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "relay first byte timeout",
-                ))
+                // Latency exceeded — mark unhealthy but keep the connection alive
+                // so the client still gets the (slow) response.
+                latency_exceeded.store(true, Ordering::Relaxed);
+                log::warn!("[tcp]no first byte within {}ms, marking unhealthy (connection kept)", max_latency_ms);
+                relay.await.map(|_| ())
             }
         }
     }
@@ -306,12 +310,18 @@ pub async fn connect_and_relay(
         proxy::handle_proxy(&mut local, &mut remote, *proxy_opts).await?;
     }
 
-    // relay (with optional first-byte latency kill).
+    // relay (with optional non-disruptive first-byte latency failover).
     #[cfg(feature = "balance")]
-    let (max_latency_ms, first_byte_us) = {
+    let (max_latency_ms, first_byte_us, latency_exceeded) = {
         let ml = balancer.health_config().and_then(|c| c.max_latency_ms);
-        let fb = ml.map(|_| Arc::new(AtomicU64::new(0)));
-        (ml, fb)
+        match ml {
+            Some(ms) => (
+                Some(ms),
+                Some(Arc::new(AtomicU64::new(0))),
+                Some(Arc::new(AtomicBool::new(false))),
+            ),
+            None => (None, None, None),
+        }
     };
 
     let res = {
@@ -323,7 +333,7 @@ pub async fn connect_and_relay(
                 #[cfg(feature = "balance")]
                 {
                     if let Some(fb) = &first_byte_us {
-                        relay_plain_timed(local, remote, fb, max_latency_ms.unwrap()).await
+                        relay_plain_timed(local, remote, fb, latency_exceeded.as_ref().unwrap(), max_latency_ms.unwrap()).await
                     } else {
                         plain::run_relay(local, remote).await
                     }
@@ -337,7 +347,7 @@ pub async fn connect_and_relay(
             #[cfg(feature = "balance")]
             {
                 if let Some(fb) = &first_byte_us {
-                    relay_plain_timed(local, remote, fb, max_latency_ms.unwrap()).await
+                    relay_plain_timed(local, remote, fb, latency_exceeded.as_ref().unwrap(), max_latency_ms.unwrap()).await
                 } else {
                     plain::run_relay(local, remote).await
                 }
@@ -351,11 +361,20 @@ pub async fn connect_and_relay(
         Ok(()) => {
             #[cfg(feature = "balance")]
             if let Some(tok) = selected_token {
-                balancer.on_success(tok);
+                // If latency exceeded the threshold, mark unhealthy even
+                // though the relay completed successfully (no disruption).
+                let slow = latency_exceeded.as_ref()
+                    .map_or(false, |le| le.load(Ordering::Relaxed));
+                if slow {
+                    log::warn!("[tcp]peer {:?} relay latency exceeded threshold, marking unhealthy", tok);
+                    balancer.on_failure(tok);
+                } else {
+                    balancer.on_success(tok);
+                }
             }
         }
         Err(e) => {
-            // Relay failed (downstream unreachable, timeout, etc.):
+            // Relay failed (downstream unreachable, etc.):
             // mark this peer as failed so the balancer can skip it next time.
             #[cfg(feature = "balance")]
             if let Some(tok) = selected_token {

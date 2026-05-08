@@ -66,10 +66,12 @@ pub struct NetConf {
 
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "fail_timeout_secs")]
     pub fail_timeout: Option<u32>,
 
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "max_latency_ms")]
     pub max_latency: Option<u32>,
 }
 
