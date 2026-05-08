@@ -9,6 +9,9 @@ pub struct HealthCheckConfig {
     pub max_fails: u32,
     /// Duration in seconds that an unhealthy node stays excluded.
     pub fail_timeout_secs: u32,
+    /// Maximum connect latency in milliseconds before treating as failure.
+    /// `None` disables latency-based failover (default).
+    pub max_latency_ms: Option<u32>,
 }
 
 impl Default for HealthCheckConfig {
@@ -16,6 +19,7 @@ impl Default for HealthCheckConfig {
         Self {
             max_fails: 2,
             fail_timeout_secs: 120,
+            max_latency_ms: None,
         }
     }
 }

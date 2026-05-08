@@ -105,6 +105,15 @@ impl Balancer {
         }
     }
 
+    /// Get health check config, if any.
+    pub fn health_config(&self) -> Option<&HealthCheckConfig> {
+        match self {
+            Balancer::Off => None,
+            Balancer::IpHash(iphash) => iphash.config(),
+            Balancer::RoundRobin(rr) => rr.config(),
+        }
+    }
+
     /// Parse balancer from string.
     /// Format: $strategy: $weight1, $weight2, ...
     pub fn parse_from_str(s: &str) -> Self {

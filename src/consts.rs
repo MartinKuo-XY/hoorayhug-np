@@ -18,6 +18,7 @@ pub const PROXY_PROTOCOL_TIMEOUT: usize = 5;
 // default health-check failover
 pub const MAX_FAILS: u32 = 2;
 pub const FAIL_TIMEOUT: u32 = 120;
+pub const MAX_LATENCY_MS: u32 = 200;
 
 // features
 macro_rules! def_feat {

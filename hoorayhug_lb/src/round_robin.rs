@@ -30,6 +30,13 @@ fn now_secs() -> u32 {
         .as_secs() as u32
 }
 
+impl RoundRobin {
+    /// Get the health check config, if any.
+    pub fn config(&self) -> Option<&HealthCheckConfig> {
+        self.config.as_ref()
+    }
+}
+
 impl Balance for RoundRobin {
     type State = ();
 

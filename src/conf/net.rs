@@ -67,6 +67,10 @@ pub struct NetConf {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fail_timeout: Option<u32>,
+
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_latency: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -77,6 +81,7 @@ pub struct NetInfo {
     pub use_udp: bool,
     pub max_fails: Option<u32>,
     pub fail_timeout: Option<u32>,
+    pub max_latency: Option<u32>,
 }
 
 impl Config for NetConf {
@@ -88,7 +93,7 @@ impl Config for NetConf {
             send_mptcp, accept_mptcp,
             send_proxy, accept_proxy, send_proxy_version, accept_proxy_timeout,
             tcp_keepalive, tcp_keepalive_probe, tcp_timeout, udp_timeout,
-            max_fails, fail_timeout
+            max_fails, fail_timeout, max_latency
         ]
     }
 
@@ -156,6 +161,7 @@ impl Config for NetConf {
 
         let max_fails = self.max_fails;
         let fail_timeout = self.fail_timeout;
+        let max_latency = self.max_latency;
 
         NetInfo {
             bind_opts,
@@ -164,6 +170,7 @@ impl Config for NetConf {
             use_udp,
             max_fails,
             fail_timeout,
+            max_latency,
         }
     }
 
@@ -186,6 +193,7 @@ impl Config for NetConf {
         rst!(self, accept_proxy_timeout, other);
         rst!(self, max_fails, other);
         rst!(self, fail_timeout, other);
+        rst!(self, max_latency, other);
         self
     }
 
@@ -208,6 +216,7 @@ impl Config for NetConf {
         take!(self, accept_proxy_timeout, other);
         take!(self, max_fails, other);
         take!(self, fail_timeout, other);
+        take!(self, max_latency, other);
         self
     }
 
@@ -260,6 +269,7 @@ impl Config for NetConf {
             accept_proxy_timeout,
             max_fails: None,
             fail_timeout: None,
+            max_latency: None,
         }
     }
 }

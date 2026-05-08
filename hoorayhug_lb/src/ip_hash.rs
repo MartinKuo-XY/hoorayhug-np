@@ -34,6 +34,13 @@ pub struct IpHash {
     config: Option<HealthCheckConfig>,
 }
 
+impl IpHash {
+    /// Get the health check config, if any.
+    pub fn config(&self) -> Option<&HealthCheckConfig> {
+        self.config.as_ref()
+    }
+}
+
 impl Balance for IpHash {
     type State = IpAddr;
 

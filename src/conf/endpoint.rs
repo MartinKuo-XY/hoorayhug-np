@@ -88,9 +88,9 @@ impl EndpointConf {
     }
 
     #[cfg(feature = "balance")]
-    fn build_balancer(&self, max_fails: Option<u32>, fail_timeout: Option<u32>) -> Balancer {
+    fn build_balancer(&self, max_fails: Option<u32>, fail_timeout: Option<u32>, max_latency: Option<u32>) -> Balancer {
         let hc = match (max_fails, fail_timeout) {
-            (Some(max_fails), Some(fail_timeout)) => Some(HealthCheckConfig { max_fails, fail_timeout_secs: fail_timeout }),
+            (Some(max_fails), Some(fail_timeout)) => Some(HealthCheckConfig { max_fails, fail_timeout_secs: fail_timeout, max_latency_ms: max_latency }),
             _ => None,
         };
         if let Some(s) = &self.balance {
@@ -144,9 +144,9 @@ impl Config for EndpointConf {
         let laddr = self.build_local();
         let raddr = self.build_remote();
         let extra_raddrs = self.extra_remotes.iter().map(|r| Self::build_remote_x(r)).collect();
-        let NetInfo { mut bind_opts, mut conn_opts, no_tcp, use_udp, max_fails, fail_timeout } = self.network.build();
+        let NetInfo { mut bind_opts, mut conn_opts, no_tcp, use_udp, max_fails, fail_timeout, max_latency } = self.network.build();
 
-        #[cfg(feature = "balance")] { conn_opts.balancer = self.build_balancer(max_fails, fail_timeout); }
+        #[cfg(feature = "balance")] { conn_opts.balancer = self.build_balancer(max_fails, fail_timeout, max_latency); }
         #[cfg(feature = "transport")] { conn_opts.transport = self.build_transport(); }
 
         conn_opts.bind_address = self.build_send_through();
