@@ -232,8 +232,17 @@ async fn relay_plain_timed(
     let deadline = tokio::time::Instant::now() + Duration::from_millis(max_latency_ms as u64);
 
     tokio::select! {
-        // Relay completed before the deadline — fast path.
-        r = &mut relay => r.map(|_| ()),
+        // Relay completed before the deadline.
+        r = &mut relay => {
+            // If relay finished before deadline but zero bytes arrived,
+            // the backend is dead (not slow) — mark unhealthy immediately.
+            let no_data = first_byte_us.load(Ordering::Relaxed) == 0;
+            if no_data {
+                latency_exceeded.store(true, Ordering::Relaxed);
+                log::warn!("[tcp]relay completed with zero bytes from remote, marking unhealthy");
+            }
+            r.map(|_| ())
+        }
 
         // Deadline fired — check whether the first byte arrived in time.
         _ = tokio::time::sleep_until(deadline) => {
