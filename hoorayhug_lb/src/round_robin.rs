@@ -122,10 +122,21 @@ impl Balance for RoundRobin {
             }
         }
 
-        // All nodes unhealthy: fall back to first token as last resort.
+        // All nodes unhealthy: pick the one closest to recovery
+        // instead of always falling back to first_token.
+        // This avoids a loop where the same node keeps failing and
+        // resetting its own timeout while other nodes are ignored.
         if best.is_none() && self.config.is_some() {
-            eprintln!("[DIAG] RR::next ALL_UNHEALTHY fallback to first_token={:?}", first_token);
-            return first_token;
+            let mut nearest: Option<(u32, Token)> = None;
+            for p in nodes.iter() {
+                let checked = p.checked.load(Ordering::Relaxed);
+                if nearest.is_none() || checked < nearest.unwrap().0 {
+                    nearest = Some((checked, p.token));
+                }
+            }
+            let fallback = nearest.map(|(_, t)| t).or(first_token);
+            eprintln!("[DIAG] RR::next ALL_UNHEALTHY fallback={:?} (nearest recovery)", fallback);
+            return fallback;
         }
 
         best.map(|x| {
@@ -166,14 +177,23 @@ impl Balance for RoundRobin {
         let mut nodes = self.nodes.lock().unwrap();
 
         if let Some(node) = nodes.iter_mut().find(|n| n.token == token) {
+            let old_fails = node.fails.load(Ordering::Relaxed);
             let fails = node.fails.fetch_add(1, Ordering::Relaxed) + 1;
             eprintln!("[DIAG] RR::on_failure token={:?} fails={} max_fails={}", token, fails, cfg.max_fails);
 
             if fails >= cfg.max_fails {
-                let now = now_secs();
-                node.checked
-                    .store(now + cfg.fail_timeout_secs, Ordering::Relaxed);
-                eprintln!("[DIAG] RR::on_failure MARK_UNHEALTHY token={:?} checked={} (now+{}s)", token, now + cfg.fail_timeout_secs, cfg.fail_timeout_secs);
+                // Only extend the exclusion window on the first crossing.
+                // Already-unhealthy nodes must NOT have their checked refreshed,
+                // otherwise an ALL_UNHEALTHY → fallback → fail loop keeps
+                // resetting the timeout forever.
+                if old_fails < cfg.max_fails {
+                    let now = now_secs();
+                    node.checked
+                        .store(now + cfg.fail_timeout_secs, Ordering::Relaxed);
+                    eprintln!("[DIAG] RR::on_failure MARK_UNHEALTHY token={:?} checked={} (now+{}s)", token, now + cfg.fail_timeout_secs, cfg.fail_timeout_secs);
+                } else {
+                    eprintln!("[DIAG] RR::on_failure STILL_UNHEALTHY token={:?} (checked unchanged, fails={})", token, fails);
+                }
                 // Reduce effective weight to minimum for gradual recovery.
                 node.ew = 1;
             }
