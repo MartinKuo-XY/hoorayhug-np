@@ -323,6 +323,7 @@ pub async fn connect_and_relay(
     #[cfg(feature = "balance")]
     let (max_latency_ms, first_byte_us, latency_exceeded) = {
         let ml = balancer.health_config().and_then(|c| c.max_latency_ms);
+        eprintln!("[DIAG] timed_relay_enabled={}", ml.is_some());
         match ml {
             Some(ms) => (
                 Some(ms),
@@ -374,6 +375,8 @@ pub async fn connect_and_relay(
                 // though the relay completed successfully (no disruption).
                 let slow = latency_exceeded.as_ref()
                     .map_or(false, |le| le.load(Ordering::Relaxed));
+                eprintln!("[DIAG] relay Ok, token={:?}, slow={}, timed_relay={}",
+                    tok, slow, first_byte_us.is_some());
                 if slow {
                     log::warn!("[tcp]peer {:?} relay latency exceeded threshold, marking unhealthy", tok);
                     balancer.on_failure(tok);
@@ -385,6 +388,7 @@ pub async fn connect_and_relay(
         Err(e) => {
             // Relay failed (downstream unreachable, etc.):
             // mark this peer as failed so the balancer can skip it next time.
+            eprintln!("[DIAG] relay Err, token={:?}, error={}", selected_token, e);
             #[cfg(feature = "balance")]
             if let Some(tok) = selected_token {
                 balancer.on_failure(tok);

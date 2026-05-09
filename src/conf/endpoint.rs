@@ -93,6 +93,8 @@ impl EndpointConf {
             (Some(max_fails), Some(fail_timeout)) => Some(HealthCheckConfig { max_fails, fail_timeout_secs: fail_timeout, max_latency_ms: max_latency }),
             _ => None,
         };
+        eprintln!("[DIAG] build_balancer max_fails={:?} fail_timeout={:?} max_latency={:?} → HealthCheckConfig={:?}",
+            max_fails, fail_timeout, max_latency, hc);
         if let Some(s) = &self.balance {
             // Parse strategy + weights, then reconstruct with health config.
             let (strategy, weights) = s.split_once(':').unwrap_or((s, ""));
